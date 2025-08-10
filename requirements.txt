@@ -11,4 +11,3 @@ pandas
 numpy
 scipy
 Pillow
-pandas
