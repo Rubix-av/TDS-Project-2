@@ -35,20 +35,13 @@ PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 # Utility: run code in same process (capture stdout + output var)
 # ------------------
 def run_python_code_in_process(file_path: str):
-    """Executes a Python script file in the current process and captures stdout + 'output' var."""
+    """Executes a Python script file in the current process."""
     with open(file_path, "r") as f:
         code = f.read()
     exec_globals = {}
-    stdout_buffer = io.StringIO()
     try:
-        with contextlib.redirect_stdout(stdout_buffer):
-            exec(code, exec_globals)
-        # Prefer 'output' var if set, else fallback to printed output
-        if "output" in exec_globals and exec_globals["output"] is not None:
-            return exec_globals["output"]
-        else:
-            printed = stdout_buffer.getvalue().strip()
-            return printed if printed else None
+        exec(code, exec_globals)
+        return exec_globals.get("output", None)  # return object directly
     except Exception as e:
         raise RuntimeError(str(e))
 
@@ -211,3 +204,4 @@ async def upload_file(
 @app.get("/")
 async def root():
     return {"message": "Hello!"}
+
