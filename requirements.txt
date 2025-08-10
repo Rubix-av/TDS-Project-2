@@ -1,8 +1,7 @@
-Pillow
-numpy
-requests
-google-genai
-python-dotenv
 fastapi
-pydantic
 uvicorn
+google-genai
+python-multipart
+python-dotenv
+requests
+Pillow
