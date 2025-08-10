@@ -135,7 +135,7 @@ def generate_scraping_code(task: str):
 def run_coded_task():
     """Runs coded_task.txt with the system Python and returns the subprocess result."""
     result = subprocess.run(
-        [sys.executable, "code/coded_task.txt"],
+        [sys.executable, "/tmp/coded_task.txt"],
         capture_output=True,
         text=True
     )
@@ -192,14 +192,14 @@ def run_coded_task_with_retry(max_attempts=5):
         print(f"❌ Error:\n{result.stderr}")
 
         # Read current code
-        with open("code/coded_task.txt", "r") as f:
+        with open("/tmp/coded_task.txt", "r") as f:
             current_code = f.read()
 
         # Fix with Gemini
         fixed_code = fix_coded_task_with_gemini(current_code, result.stderr)
 
         # Save updated code
-        with open("code/coded_task.txt", "w") as f:
+        with open("/tmp/coded_task.txt", "w") as f:
             f.write(fixed_code)
 
         print("🔄 Code updated from Gemini, retrying...")
@@ -250,7 +250,7 @@ RULES:
     content = response.text
     cleaned_content = content.replace("```python", "").replace("```", "").strip()
     
-    with open("code/coded_task.txt", "w") as f:
+    with open("/tmp/coded_task.txt", "w") as f:
         f.write(cleaned_content)
     
     return cleaned_content
@@ -294,16 +294,6 @@ async def upload_file(
         
         with open("scraped_data.txt", 'r') as f:
             scraped_data = f.read()
-        
-        print("-----------------------------------------------")
-        print("-----------------------------------------------")
-        print("-----------------------------------------------")
-        print("----------------------------------------------")
-        print(scraped_data)
-        print("-----------------------------------------------")
-        print("-----------------------------------------------")
-        print("-----------------------------------------------")
-        print("-----------------------------------------------")
 
         # Generate final answer
         answer_questions_with_gemini(text, scraped_data)
@@ -323,4 +313,5 @@ if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)
     
         
+
     
