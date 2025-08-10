@@ -6,8 +6,8 @@ python-dotenv
 requests
 beautifulsoup4
 matplotlib
-seaborn
 pandas
 numpy
 scipy
 Pillow
+
