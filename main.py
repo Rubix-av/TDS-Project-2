@@ -41,7 +41,16 @@ def run_python_code_in_process(file_path: str):
     exec_globals = {}
     try:
         exec(code, exec_globals)
-        return exec_globals.get("output", None)  # return object directly
+        output = exec_globals.get("output", None)
+
+        # If output is a JSON string, parse into Python object
+        if isinstance(output, str):
+            try:
+                output = json.loads(output)
+            except json.JSONDecodeError:
+                pass
+
+        return output
     except Exception as e:
         raise RuntimeError(str(e))
 
@@ -204,4 +213,3 @@ async def upload_file(
 @app.get("/")
 async def root():
     return {"message": "Hello!"}
-
