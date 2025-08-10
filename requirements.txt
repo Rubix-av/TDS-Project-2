@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+google-genai
+python-multipart
+python-dotenv
+requests
+beautifulsoup4
+matplotlib
+seaborn
+pandas
+numpy
+scipy
+Pillow
+pandas
