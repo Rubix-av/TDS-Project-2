@@ -11,6 +11,7 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google import genai
+import contextlib
 
 load_dotenv()
 
@@ -31,16 +32,23 @@ TMP_DIR = "/tmp"
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 
 # ------------------
-# Utility: run code in same process
+# Utility: run code in same process (capture stdout + output var)
 # ------------------
 def run_python_code_in_process(file_path: str):
-    """Executes a Python script file in the current process."""
+    """Executes a Python script file in the current process and captures stdout + 'output' var."""
     with open(file_path, "r") as f:
         code = f.read()
     exec_globals = {}
+    stdout_buffer = io.StringIO()
     try:
-        exec(code, exec_globals)
-        return json.dumps(exec_globals.get("output", None))  # optional: capture 'output' var
+        with contextlib.redirect_stdout(stdout_buffer):
+            exec(code, exec_globals)
+        # Prefer 'output' var if set, else fallback to printed output
+        if "output" in exec_globals and exec_globals["output"] is not None:
+            return exec_globals["output"]
+        else:
+            printed = stdout_buffer.getvalue().strip()
+            return printed if printed else None
     except Exception as e:
         raise RuntimeError(str(e))
 
@@ -153,6 +161,7 @@ RULES:
 4. If csv file sent with POST required, it is present in "sent_csv/data.csv"
 5. If image sent with POST required, it is present in "sent_image/image.png"
 6. Construct the final JSON object using JSON.dumps()
+7. Assign the JSON string to a variable named output (do not print)
 """
     response = client.models.generate_content(
         model="gemini-2.5-flash",
