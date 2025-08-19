@@ -116,8 +116,17 @@ def generate_scraping_code(task: str):
         task_breakdown_prompt = f.read()
     messages = [
         {"role": "system", "content": "You are a professional web scraper. Do not solve or answer questions."},
-        {"role": "user", "content": f"{task}\n\n{task_breakdown_prompt}"}
+        {"role": "user", "content": f"""{task}
+
+    {task_breakdown_prompt}
+
+    IMPORTANT RULES:
+    - Never read CSV files from disk like 'sample-sales.csv' or 'sample-weather.csv'.
+    - If CSV input is required, it will always be provided at runtime by the FastAPI endpoint.
+    - Always save your scraped output to '/tmp/scraped_data.txt'.
+    """}
     ]
+    
     response = requests.post(
         "https://aipipe.org/openrouter/v1/chat/completions",
         json={
@@ -132,6 +141,8 @@ def generate_scraping_code(task: str):
     data = response.json()
     content = data["choices"][0]["message"]["content"]
     cleaned_content = content.replace("```python", "").replace("```", "").strip()
+    cleaned_content = cleaned_content.replace("scraped_data.txt", "/tmp/scraped_data.txt")
+    
     scraper_path = os.path.join(TMP_DIR, "scraper.py")
     with open(scraper_path, "w") as f:
         f.write(cleaned_content)
