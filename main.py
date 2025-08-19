@@ -131,23 +131,6 @@ def generate_scraping_code(task: str):
 # Answer questions
 # ------------------
 def answer_questions_with_gemini(questions: str, scraped_data: str) -> str:
-    
-    if scraped_data == "No scraped data":
-        prompt = f"""
-        There is no scraped data available to answer the questions. Just return the json object in the same structure as mentioned in below. You can fill the values with "NA" or "0".
-        Remember that you will written plain json object as text, no fences ("```"), don't wrap the response in a code block format, return as plain text.
-        YOU MUST NOT RETURN ANY EXTRA COMMENTARY OR ANYTHING, JUST THE JSON OBJECT
-        
-        {questions}          
-        """
-        
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[prompt],
-        )
-        content = response.text
-        return content
-    
     prompt = f"""
 You are a data analyst. Below is the data that has been scraped from the web, and a set of questions that must be answered based on this data. The output must be a JSON object
 
@@ -214,19 +197,15 @@ async def upload_file(
             df = pd.read_csv(io.BytesIO(csv_bytes))
             scraped_data = df.to_csv(index=False)
             task_file = answer_questions_with_gemini(text, scraped_data)
-            return run_with_retry(task_file, max_attempts=6)
+            return run_with_retry(task_file)
 
-        try:
-            scraper_path = generate_scraping_code(text)
-            run_with_retry(scraper_path)
-            scraped_file = os.path.join(TMP_DIR, "scraped_data.txt")
-            with open(scraped_file, "r") as f:
-                scraped_data = f.read()
-            task_file = answer_questions_with_gemini(text, scraped_data)
-            return run_with_retry(task_file, max_attempts=6)
-        except Exception as e:
-            task_file = answer_questions_with_gemini(text, scraped_data="No scraped data")
-            return task_file
+        scraper_path = generate_scraping_code(text)
+        run_with_retry(scraper_path)
+        scraped_file = os.path.join(TMP_DIR, "scraped_data.txt")
+        with open(scraped_file, "r") as f:
+            scraped_data = f.read()
+        task_file = answer_questions_with_gemini(text, scraped_data)
+        return run_with_retry(task_file)
 
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
