@@ -69,15 +69,25 @@ Error:
 {error}
 """
     try:
+        # Prefer pro model
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-pro",
             contents=[prompt],
         )
-        fixed_code = response.text
-        return fixed_code.replace("```python", "").replace("```", "").strip()
     except Exception as e:
-        print(f"LLM request failed: {e}")
-        return code
+        print(f"Pro model unavailable, falling back to flash: {e}")
+        # Fallback to flash
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[prompt],
+            )
+        except Exception as e2:
+            print(f"Flash model also failed: {e2}")
+            return code  # Return original code if both fail
+
+    fixed_code = response.text
+    return fixed_code.replace("```python", "").replace("```", "").strip()
 
 # ------------------
 # Retry runner
@@ -163,10 +173,19 @@ RULES:
 4. Construct the final JSON object using JSON.dumps()
 5. Assign the JSON string to a variable named output (do not print)
 """
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[prompt],
-    )
+    # try pro model first
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=[prompt],
+        )
+    except Exception as e:
+        # fallback to flash if pro is unavailable
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[prompt],
+        )
+
     content = response.text
     cleaned_content = content.replace("```python", "").replace("```", "").strip()
     task_path = os.path.join(TMP_DIR, "coded_task.py")
