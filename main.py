@@ -190,26 +190,39 @@ RULES:
 # ------------------
 # FastAPI endpoints
 # ------------------
+from fastapi import Request
+
 @app.post("/api/")
-async def upload_file(
-    questions: UploadFile = File(..., alias="questions.txt"),
-    image: Optional[UploadFile] = File(None, alias="image.png"),
-    data: Optional[UploadFile] = File(None, alias="data.csv")
-):
+async def upload_file(request: Request, questions: UploadFile = File(..., alias="questions.txt")):
     try:
         text = (await questions.read()).decode("utf-8")
 
-        if image:
-            img_bytes = await image.read()
-            Image.open(io.BytesIO(img_bytes))  # just to validate
+        # Read all other uploaded files
+        form = await request.form()
+        scraped_data = None
 
-        if data:
-            csv_bytes = await data.read()
-            df = pd.read_csv(io.BytesIO(csv_bytes))
-            scraped_data = df.to_csv(index=False)
+        for name, file in form.items():
+            if name == "questions.txt":
+                continue  # already handled
+            if isinstance(file, UploadFile):
+                filename = file.filename.lower()
+
+                # Handle CSV dynamically
+                if filename.endswith(".csv"):
+                    csv_bytes = await file.read()
+                    df = pd.read_csv(io.BytesIO(csv_bytes))
+                    scraped_data = df.to_csv(index=False)
+
+                # Handle image dynamically
+                elif filename.endswith((".png", ".jpg", ".jpeg")):
+                    img_bytes = await file.read()
+                    Image.open(io.BytesIO(img_bytes))  # just to validate
+
+        if scraped_data:
             task_file = answer_questions_with_gemini(text, scraped_data)
             return run_with_retry(task_file)
 
+        # If no CSV, fallback to scraper
         try:
             scraper_path = generate_scraping_code(text)
             run_with_retry(scraper_path)
@@ -218,12 +231,13 @@ async def upload_file(
                 scraped_data = f.read()
             task_file = answer_questions_with_gemini(text, scraped_data)
             return run_with_retry(task_file)
-        except Exception as e:
+        except Exception:
             task_file = answer_questions_with_gemini(text, scraped_data="No data")
             return task_file
 
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
+
 
 @app.get("/")
 async def root():
