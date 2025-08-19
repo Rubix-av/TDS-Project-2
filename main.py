@@ -128,22 +128,36 @@ def generate_scraping_code(task: str):
     return scraper_path
 
 # ------------------
+# Gemini fallback helper
+# ------------------
+def generate_with_fallback(contents, primary="gemini-2.5-pro", fallbacks=None):
+    if fallbacks is None:
+        fallbacks = ["gemini-2.0-pro", "gemini-2.0-flash", "gemini-1.5-pro"]
+
+    last_error = None
+    for model in [primary] + fallbacks:
+        try:
+            response = client.models.generate_content(model=model, contents=[contents])
+            return response.text
+        except Exception as e:
+            print(f"⚠️ Model {model} failed: {e}")
+            last_error = e
+            continue
+
+    raise RuntimeError(f"All Gemini model calls failed. Last error: {last_error}")
+
+# ------------------
 # Answer questions
 # ------------------
 def answer_questions_with_gemini(questions: str, scraped_data: str) -> str:
-    
     if scraped_data == "No scraped data":
-        response = client.models.generate_content(
-            model="gemini-2.5-pro",
-            contents=[f"""
-            There is no scraped data available to answer the questions. Just return the json object in the same structure as mentioned in below. You can fill the values with "NA" or "0".
-            Remember that you will written plain json object as text, no fences ("```"), don't wrap the response in a code block format, return as plain text.
-            YOU MUST NOT RETURN ANY EXTRA COMMENTARY OR ANYTHING, JUST THE JSON OBJECT
-            
-            {questions}          
-            """],
-        )
-        content = response.text
+        content = generate_with_fallback(f"""
+        There is no scraped data available to answer the questions. Just return the json object in the same structure as mentioned in below. You can fill the values with "NA" or "0".
+        Remember that you will written plain json object as text, no fences ("```"), don't wrap the response in a code block format, return as plain text.
+        YOU MUST NOT RETURN ANY EXTRA COMMENTARY OR ANYTHING, JUST THE JSON OBJECT
+        
+        {questions}          
+        """, primary="gemini-2.5-pro")
         return content
     
     prompt = f"""
@@ -180,11 +194,7 @@ RULES:
 6. Construct the final JSON object using JSON.dumps()
 7. Assign the JSON string to a variable named output (do not print)
 """
-    response = client.models.generate_content(
-        model="gemini-2.5-pro",
-        contents=[prompt],
-    )
-    content = response.text
+    content = generate_with_fallback(prompt, primary="gemini-2.5-pro")
     cleaned_content = content.replace("```python", "").replace("```", "").strip()
     task_path = os.path.join(TMP_DIR, "coded_task.py")
     with open(task_path, "w") as f:
@@ -242,7 +252,3 @@ async def root():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5045)
-
-
-
-
