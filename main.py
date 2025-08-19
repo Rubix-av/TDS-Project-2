@@ -131,6 +131,21 @@ def generate_scraping_code(task: str):
 # Answer questions
 # ------------------
 def answer_questions_with_gemini(questions: str, scraped_data: str) -> str:
+    
+    if scraped_data == "No scraped data":
+        response = client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=[f"""
+            There is no scraped data available to answer the questions. Just return the json object in the same structure as mentioned in below. You can fill the values with "NA" or "0".
+            Remember that you will written plain json object as text, no fences ("```"), don't wrap the response in a code block format, return as plain text.
+            YOU MUST NOT RETURN ANY EXTRA COMMENTARY OR ANYTHING, JUST THE JSON OBJECT
+            
+            {questions}          
+            """],
+        )
+        content = response.text
+        return content
+    
     prompt = f"""
 You are a data analyst. Below is the data that has been scraped from the web, and a set of questions that must be answered based on this data. The output must be a JSON object
 
@@ -166,7 +181,7 @@ RULES:
 7. Assign the JSON string to a variable named output (do not print)
 """
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-pro",
         contents=[prompt],
     )
     content = response.text
@@ -181,32 +196,40 @@ RULES:
 # ------------------
 @app.post("/api/")
 async def upload_file(
-    questions_txt: UploadFile = File(...),
-    image_png: Optional[UploadFile] = File(None),
-    data_csv: Optional[UploadFile] = File(None),
+    questions: UploadFile = File(..., alias="questions.txt"),
+    questions_txt: Optional[UploadFile] = File(None, alias="questions_txt"),
+    image: Optional[UploadFile] = File(None, alias="image.png"),
+    data: Optional[UploadFile] = File(None, alias="data.csv"),
+    data_csv: Optional[UploadFile] = File(None, alias="data_csv"),
 ):
     try:
-        text = (await questions_txt.read()).decode("utf-8")
+        # normalize: prefer questions_txt if provided, else questions
+        qfile = questions_txt or questions
+        text = (await qfile.read()).decode("utf-8")
 
-        if image_png:
-            img_bytes = await image_png.read()
+        if image:
+            img_bytes = await image.read()
             Image.open(io.BytesIO(img_bytes))  # validate
 
-        if data_csv:
-            csv_bytes = await data_csv.read()
+        dfile = data_csv or data
+        if dfile:
+            csv_bytes = await dfile.read()
             df = pd.read_csv(io.BytesIO(csv_bytes))
             scraped_data = df.to_csv(index=False)
             task_file = answer_questions_with_gemini(text, scraped_data)
             return run_with_retry(task_file)
 
-        # if no CSV, generate scraping code
-        scraper_path = generate_scraping_code(text)
-        run_with_retry(scraper_path)
-        scraped_file = os.path.join(TMP_DIR, "scraped_data.txt")
-        with open(scraped_file, "r") as f:
-            scraped_data = f.read()
-        task_file = answer_questions_with_gemini(text, scraped_data)
-        return run_with_retry(task_file)
+        try:
+            scraper_path = generate_scraping_code(text)
+            run_with_retry(scraper_path)
+            scraped_file = os.path.join(TMP_DIR, "scraped_data.txt")
+            with open(scraped_file, "r") as f:
+                scraped_data = f.read()
+            task_file = answer_questions_with_gemini(text, scraped_data)
+            return run_with_retry(task_file)
+        except Exception as e:
+            task_file = answer_questions_with_gemini(text, scraped_data="No scraped data")
+            return run_with_retry(task_file)
 
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
@@ -219,6 +242,7 @@ async def root():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5045)
+
 
 
 
