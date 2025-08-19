@@ -21,7 +21,3 @@ Behavior:
 - Be adaptive. Understand what kind of data needs to be fetched based on the question or attachments.
 - Do not assume responsibility beyond data extraction.
 - Output only the Python code — no explanations or extra messages.
-
-Note:
-- If csv file sent with POST required, it is present in "sent_csv/data.csv"
-- If image sent with POST required, it is present in "sent_image/image.png"
