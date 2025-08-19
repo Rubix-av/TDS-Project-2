@@ -181,29 +181,37 @@ RULES:
 # ------------------
 @app.post("/api/")
 async def upload_file(
-    questions: UploadFile = File(..., alias="questions.txt"),
+    questions: Optional[UploadFile] = File(None, alias="questions.txt"),
     image: Optional[UploadFile] = File(None, alias="image.png"),
-    data: Optional[UploadFile] = File(None, alias="data.csv")
+    data: Optional[UploadFile] = File(None, alias="data.csv"),
+    questions_text: Optional[str] = Form(None),  # catch text in form
+    body: Optional[dict] = Body(None)            # catch raw JSON
 ):
     try:
-        text = (await questions.read()).decode("utf-8")
+        # --- Handle questions ---
+        if questions:  # multipart file
+            text = (await questions.read()).decode("utf-8")
+        elif questions_text:  # form text
+            text = questions_text
+        elif body and "question" in body:  # JSON body
+            text = body["question"]
+        else:
+            return JSONResponse(status_code=400, content={"error": "No question provided"})
 
-        if image:
-            img_bytes = await image.read()
-            Image.open(io.BytesIO(img_bytes))  # just to validate
-
-        if data:
+        # --- Handle data.csv ---
+        scraped_data = None
+        if data:  # file
             csv_bytes = await data.read()
             df = pd.read_csv(io.BytesIO(csv_bytes))
             scraped_data = df.to_csv(index=False)
-            task_file = answer_questions_with_gemini(text, scraped_data)
-            return run_with_retry(task_file)
+        elif body and "data" in body:  # JSON inline CSV
+            df = pd.read_csv(io.StringIO(body["data"]))
+            scraped_data = df.to_csv(index=False)
 
-        scraper_path = generate_scraping_code(text)
-        run_with_retry(scraper_path)
-        scraped_file = os.path.join(TMP_DIR, "scraped_data.txt")
-        with open(scraped_file, "r") as f:
-            scraped_data = f.read()
+        if not scraped_data:
+            return JSONResponse(status_code=400, content={"error": "No data provided"})
+
+        # --- Run Gemini ---
         task_file = answer_questions_with_gemini(text, scraped_data)
         return run_with_retry(task_file)
 
@@ -217,3 +225,4 @@ async def root():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5045)
+
