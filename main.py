@@ -69,25 +69,15 @@ Error:
 {error}
 """
     try:
-        # Prefer pro model
         response = client.models.generate_content(
-            model="gemini-2.5-pro",
+            model="gemini-2.5-flash",
             contents=[prompt],
         )
+        fixed_code = response.text
+        return fixed_code.replace("```python", "").replace("```", "").strip()
     except Exception as e:
-        print(f"Pro model unavailable, falling back to flash: {e}")
-        # Fallback to flash
-        try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[prompt],
-            )
-        except Exception as e2:
-            print(f"Flash model also failed: {e2}")
-            return code  # Return original code if both fail
-
-    fixed_code = response.text
-    return fixed_code.replace("```python", "").replace("```", "").strip()
+        print(f"LLM request failed: {e}")
+        return code
 
 # ------------------
 # Retry runner
@@ -116,17 +106,8 @@ def generate_scraping_code(task: str):
         task_breakdown_prompt = f.read()
     messages = [
         {"role": "system", "content": "You are a professional web scraper. Do not solve or answer questions."},
-        {"role": "user", "content": f"""{task}
-
-    {task_breakdown_prompt}
-
-    IMPORTANT RULES:
-    - Never read CSV files from disk like 'sample-sales.csv' or 'sample-weather.csv'.
-    - If CSV input is required, it will always be provided at runtime by the FastAPI endpoint.
-    - Always save your scraped output to '/tmp/scraped_data.txt'.
-    """}
+        {"role": "user", "content": f"{task}\n\n{task_breakdown_prompt}"}
     ]
-    
     response = requests.post(
         "https://aipipe.org/openrouter/v1/chat/completions",
         json={
@@ -141,8 +122,6 @@ def generate_scraping_code(task: str):
     data = response.json()
     content = data["choices"][0]["message"]["content"]
     cleaned_content = content.replace("```python", "").replace("```", "").strip()
-    cleaned_content = cleaned_content.replace("scraped_data.txt", "/tmp/scraped_data.txt")
-    
     scraper_path = os.path.join(TMP_DIR, "scraper.py")
     with open(scraper_path, "w") as f:
         f.write(cleaned_content)
@@ -152,6 +131,19 @@ def generate_scraping_code(task: str):
 # Answer questions
 # ------------------
 def answer_questions_with_gemini(questions: str, scraped_data: str) -> str:
+    
+    if scraped_data == "No data":
+        response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[f"""
+                  No data is available to answer the questions, so only return the json object in the same structure as specified in the question below. Also do not add any explanations or additional text. Return the json object as plain text and don't include any code blocks (```python/json```, etc).
+                  
+                  {questions}
+                  """],
+        )
+        content = response.text
+        return content
+
     prompt = f"""
 You are a data analyst. Below is the data that has been scraped from the web, and a set of questions that must be answered based on this data. The output must be a JSON object
 
@@ -184,19 +176,10 @@ RULES:
 4. Construct the final JSON object using JSON.dumps()
 5. Assign the JSON string to a variable named output (do not print)
 """
-    # try pro model first
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-pro",
-            contents=[prompt],
-        )
-    except Exception as e:
-        # fallback to flash if pro is unavailable
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[prompt],
-        )
-
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[prompt],
+    )
     content = response.text
     cleaned_content = content.replace("```python", "").replace("```", "").strip()
     task_path = os.path.join(TMP_DIR, "coded_task.py")
@@ -227,13 +210,17 @@ async def upload_file(
             task_file = answer_questions_with_gemini(text, scraped_data)
             return run_with_retry(task_file)
 
-        scraper_path = generate_scraping_code(text)
-        run_with_retry(scraper_path)
-        scraped_file = os.path.join(TMP_DIR, "scraped_data.txt")
-        with open(scraped_file, "r") as f:
-            scraped_data = f.read()
-        task_file = answer_questions_with_gemini(text, scraped_data)
-        return run_with_retry(task_file)
+        try:
+            scraper_path = generate_scraping_code(text)
+            run_with_retry(scraper_path)
+            scraped_file = os.path.join(TMP_DIR, "scraped_data.txt")
+            with open(scraped_file, "r") as f:
+                scraped_data = f.read()
+            task_file = answer_questions_with_gemini(text, scraped_data)
+            return run_with_retry(task_file)
+        except Exception as e:
+            task_file = answer_questions_with_gemini(text, scraped_data="No data")
+            return task_file
 
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
