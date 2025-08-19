@@ -11,7 +11,6 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google import genai
-import re
 import contextlib
 
 load_dotenv()
@@ -102,24 +101,12 @@ def run_with_retry(file_path: str, max_attempts=3):
 # Scraper code generation
 # ------------------
 def generate_scraping_code(task: str):
-    
-    scraper_prompt = """
-    You are a Python web scraping assistant.  
-    Generate ONLY a complete Python script that extracts the required data based on the given task.
-
-    Rules:
-    - Do NOT solve or analyze the questions — just scrape or load the data.
-    - Use ONLY: requests, BeautifulSoup, pandas.  
-    - If files (CSV, Excel, JSON, SQL, PDF) are given, load them with built-in or pandas.  
-    - Do NOT use numpy, matplotlib, seaborn, or any unlisted libraries.  
-    - Do NOT add explanations, comments, or extra text.  
-    - The script must save all extracted/loaded data into a file called "scraped_data.txt".  
-    - Output must be ONLY the Python code (no markdown fences).
-    """
-        
+    task_breakdown_file = os.path.join(PROMPTS_DIR, "scrape_data.txt")
+    with open(task_breakdown_file, "r") as f:
+        task_breakdown_prompt = f.read()
     messages = [
         {"role": "system", "content": "You are a professional web scraper. Do not solve or answer questions."},
-        {"role": "user", "content": f"{scraper_prompt}\n\n{task}"}
+        {"role": "user", "content": f"{task}\n\n{task_breakdown_prompt}"}
     ]
     response = requests.post(
         "https://aipipe.org/openrouter/v1/chat/completions",
@@ -134,7 +121,7 @@ def generate_scraping_code(task: str):
     )
     data = response.json()
     content = data["choices"][0]["message"]["content"]
-    cleaned_content = re.sub(r"```[a-zA-Z]*\n?", "", content).strip()
+    cleaned_content = content.replace("```python", "").replace("```", "").strip()
     scraper_path = os.path.join(TMP_DIR, "scraper.py")
     with open(scraper_path, "w") as f:
         f.write(cleaned_content)
@@ -143,58 +130,41 @@ def generate_scraping_code(task: str):
 # ------------------
 # Answer questions
 # ------------------
-def answer_questions_with_gemini(questions: str, scraped_data=None) -> str:
-    
-    if scraped_data != None:
-        prompt = f"""
-        You are a data analyst. Below is the data that has been scraped from the web, and a set of questions that must be answered based on this data. The output must be a JSON object
+def answer_questions_with_gemini(questions: str, scraped_data: str) -> str:
+    prompt = f"""
+You are a data analyst. Below is the data that has been scraped from the web, and a set of questions that must be answered based on this data. The output must be a JSON object
 
-        These are the installed libraries:
-        fastapi
-        uvicorn
-        google-genai
-        python-multipart
-        python-dotenv
-        requests
-        beautifulsoup4
-        matplotlib
-        seaborn
-        pandas
-        numpy
-        scipy
+These are the installed libraries:
+fastapi
+uvicorn
+google-genai
+python-multipart
+python-dotenv
+requests
+beautifulsoup4
+matplotlib
+seaborn
+pandas
+numpy
+scipy
 
-        So make sure not to use any library which would need installation
+So make sure not to use any library which would need installation
 
-        ---DATA---
-        {scraped_data}
+---DATA---
+{scraped_data}
 
-        ---QUESTIONS---
-        {questions}
+---QUESTIONS---
+{questions}
 
-        RULES:
-        1. The output must be a JSON object
-        2. Your job is to provide the code that will answer these questions.
-        3. Answer should be in the structure of response of given in question.
-        4. Construct the final JSON object using JSON.dumps()
-        5. Assign the JSON string to a variable named output (do not print)
-        """
-    else:
-        prompt = f"""
-        ---QUESTIONS---
-        {questions}
-
-        1. Don't try to solve any question or do anything extra. Just return the mentioned JSON object structure.
-        2. Since you won't be solving the questions, you can set the values as 0.
-        3. Return only a valid JSON object with no code fences or explanations.
-        """
-
-        response = client.models.generate_content(
-            model="gemini-2.5-pro",
-            contents=[prompt],
-        )
-        content = response.text
-        return content
-    
+RULES:
+1. The output must be a JSON object
+2. Your job is to provide the code that will answer these questions.
+3. Answer should be in the structure of response of given in question.
+4. If csv file sent with POST required, it is present in "sent_csv/data.csv"
+5. If image sent with POST required, it is present in "sent_image/image.png"
+6. Construct the final JSON object using JSON.dumps()
+7. Assign the JSON string to a variable named output (do not print)
+"""
     response = client.models.generate_content(
         model="gemini-2.5-pro",
         contents=[prompt],
@@ -229,23 +199,17 @@ async def upload_file(
             task_file = answer_questions_with_gemini(text, scraped_data)
             return run_with_retry(task_file, max_attempts=6)
 
-        scraper_path = generate_scraping_code(text)
-        run_with_retry(scraper_path, max_attempts=4)
-        
         try:
+            scraper_path = generate_scraping_code(text)
+            run_with_retry(scraper_path, max_attempts=4)
             scraped_file = os.path.join(TMP_DIR, "scraped_data.txt")
+            with open(scraped_file, "r") as f:
+                scraped_data = f.read()
+            task_file = answer_questions_with_gemini(text, scraped_data)
+            return run_with_retry(task_file)
         except Exception as e:
-            scraped_data = None
-            
-        if scraped_file:
-            try:
-                with open(scraped_file, "r") as f:
-                    scraped_data = f.read() 
-            except Exception as e:
-                scraped_data = None
-        
-        task_file = answer_questions_with_gemini(text, scraped_data)
-        return run_with_retry(task_file)
+            task_file = answer_questions_with_gemini(text, scraped_data="No data scraped")
+            return run_with_retry(task_file)
 
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
