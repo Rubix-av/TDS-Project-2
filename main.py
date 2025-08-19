@@ -161,7 +161,8 @@ pandas
 numpy
 scipy
 
-So make sure not to use any library which would need installation
+So make sure not to use any library which would need installation.
+Don't use networkx library
 
 ---DATA---
 {scraped_data}
@@ -192,37 +193,65 @@ RULES:
 # ------------------
 from fastapi import Request
 
-@app.post("/api/")
-async def upload_file(request: Request, questions: UploadFile = File(..., alias="questions.txt")):
-    try:
-        text = (await questions.read()).decode("utf-8")
+from typing import List, Tuple
+from fastapi import Request, UploadFile, File
+from fastapi.responses import JSONResponse
+import pandas as pd
+from PIL import Image
+import io, os
 
-        # Read all other uploaded files
+@app.post("/api/")
+async def upload_file(request: Request, questions: UploadFile = File(None, alias="questions.txt")):
+    try:
         form = await request.form()
+        files: List[Tuple[str, UploadFile]] = []
+
+        # Collect all file-like objects flexibly
+        for key, value in form.multi_items():
+            try:
+                filename = getattr(value, "filename", None)
+                read_method = getattr(value, "read", None)
+                if filename and callable(read_method):
+                    files.append((key, value))
+            except Exception:
+                continue
+
+        # Handle questions.txt (or fallback to text field)
+        text = None
+        if questions:
+            text = (await questions.read()).decode("utf-8").strip()
+        elif "questions.txt" in form or "question" in form:
+            text = str(form.get("questions.txt") or form.get("question") or "").strip()
+
+        if not text:
+            return JSONResponse(status_code=400, content={"error": "Missing questions.txt or question text"})
+
         scraped_data = None
 
-        for name, file in form.items():
-            if name == "questions.txt":
+        # Process all other uploaded files dynamically
+        for key, file in files:
+            if key == "questions.txt":
                 continue  # already handled
-            if isinstance(file, UploadFile):
-                filename = file.filename.lower()
 
-                # Handle CSV dynamically
-                if filename.endswith(".csv"):
-                    csv_bytes = await file.read()
-                    df = pd.read_csv(io.BytesIO(csv_bytes))
-                    scraped_data = df.to_csv(index=False)
+            filename = file.filename.lower()
 
-                # Handle image dynamically
-                elif filename.endswith((".png", ".jpg", ".jpeg")):
-                    img_bytes = await file.read()
-                    Image.open(io.BytesIO(img_bytes))  # just to validate
+            # CSV file
+            if filename.endswith(".csv"):
+                csv_bytes = await file.read()
+                df = pd.read_csv(io.BytesIO(csv_bytes))
+                scraped_data = df.to_csv(index=False)
 
+            # Image file
+            elif filename.endswith((".png", ".jpg", ".jpeg")):
+                img_bytes = await file.read()
+                Image.open(io.BytesIO(img_bytes))  # validate
+
+        # If we have CSV data, answer directly
         if scraped_data:
             task_file = answer_questions_with_gemini(text, scraped_data)
             return run_with_retry(task_file)
 
-        # If no CSV, fallback to scraper
+        # Otherwise, try scraping fallback
         try:
             scraper_path = generate_scraping_code(text)
             run_with_retry(scraper_path)
@@ -232,12 +261,12 @@ async def upload_file(request: Request, questions: UploadFile = File(..., alias=
             task_file = answer_questions_with_gemini(text, scraped_data)
             return run_with_retry(task_file)
         except Exception:
+            # If scraping fails too
             task_file = answer_questions_with_gemini(text, scraped_data="No data")
             return task_file
 
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
-
 
 @app.get("/")
 async def root():
