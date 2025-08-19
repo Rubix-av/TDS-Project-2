@@ -1,17 +1,15 @@
 import os
-import sys
+import re
 import io
 import json
 import requests
 import pandas as pd
 from PIL import Image
 from dotenv import load_dotenv
-from typing import Optional
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google import genai
-import contextlib
 
 load_dotenv()
 
@@ -142,6 +140,7 @@ def answer_questions_with_gemini(questions: str, scraped_data: str) -> str:
                   """],
         )
         content = response.text
+        content = re.sub(r"\s+", " ", content)
         return content
 
     prompt = f"""
@@ -249,7 +248,7 @@ async def upload_file(request: Request, questions: UploadFile = File(None, alias
         # If we have CSV data, answer directly
         if scraped_data:
             task_file = answer_questions_with_gemini(text, scraped_data)
-            return run_with_retry(task_file)
+            return run_with_retry(task_file, max_attempts=6)
 
         # Otherwise, try scraping fallback
         try:
@@ -259,7 +258,7 @@ async def upload_file(request: Request, questions: UploadFile = File(None, alias
             with open(scraped_file, "r") as f:
                 scraped_data = f.read()
             task_file = answer_questions_with_gemini(text, scraped_data)
-            return run_with_retry(task_file)
+            return run_with_retry(task_file, max_attempts=4)
         except Exception:
             # If scraping fails too
             task_file = answer_questions_with_gemini(text, scraped_data="No data")
