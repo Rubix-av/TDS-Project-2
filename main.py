@@ -166,7 +166,7 @@ RULES:
 7. Assign the JSON string to a variable named output (do not print)
 """
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-pro",
         contents=[prompt],
     )
     content = response.text
@@ -217,3 +217,4 @@ async def root():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5045)
+
