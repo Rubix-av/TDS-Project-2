@@ -160,13 +160,11 @@ RULES:
 1. The output must be a JSON object
 2. Your job is to provide the code that will answer these questions.
 3. Answer should be in the structure of response of given in question.
-4. If csv file sent with POST required, it is present in "sent_csv/data.csv"
-5. If image sent with POST required, it is present in "sent_image/image.png"
-6. Construct the final JSON object using JSON.dumps()
-7. Assign the JSON string to a variable named output (do not print)
+4. Construct the final JSON object using JSON.dumps()
+5. Assign the JSON string to a variable named output (do not print)
 """
     response = client.models.generate_content(
-        model="gemini-2.5-pro",
+        model="gemini-2.5-flash",
         contents=[prompt],
     )
     content = response.text
